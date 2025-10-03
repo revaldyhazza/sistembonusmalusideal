@@ -426,7 +426,7 @@ if uploaded_file is not None:
             with col1:
                 max_k_opt = st.number_input("Maksimum k:", min_value=0, max_value=15, step=1, value=4, help="Batas maksimum klaim yang dilakukan pemegang polis.")
             with col2:
-                max_t_opt = st.number_input("Maksimum t:", min_value=0, max_value=15, step=1, value=6, help="Batas maksimum tahun pertanggungan.")
+                max_t_opt = st.number_input("Maksimum t:", min_value=0, max_value=15, step=1, value=7, help="Batas maksimum tahun pertanggungan.")
 
             if st.button("💡 Hitung Tabel Premi", type="primary"):
                 progress_bar = st.progress(0)
@@ -474,7 +474,7 @@ if uploaded_file is not None:
         # Bagian 4: Simulasi (Tab 4) - Fixed logic for cumulative claims
         with tab4:
             st.header("🔄 Simulasi Premi Ideal")
-            simulation_mode = st.radio("Mode Simulasi:", ("Manual Input", "Berdasarkan Aturan Transisi Sistem Bonus-Malus Negara"))
+            simulation_mode = st.radio("Mode Simulasi:", ("Manual Input", "Berdasarkan Matriks Negara"))
             
             if simulation_mode == "Manual Input":
                 st.markdown("**Instruksi:** Masukkan jumlah klaim per tahun (maksimum sesuai slider). Premi dihitung independen per tahun berdasarkan klaim tahun tersebut.")
@@ -517,7 +517,7 @@ if uploaded_file is not None:
                     )
             
             else:
-                st.markdown("**Instruksi:** Simulasi berdasarkan aturan sistem Bonus-Malus yang dibuat menjadi matriks probabilitas transisi. Premi mengikuti optimal dengan batas t dan k dari hasil perhitungan premi stasioner.")
+                st.markdown("**Instruksi:** Simulasi berdasarkan matriks negara. Premi mengikuti optimal dengan batas t dan k dari sistem negara.")
                 
                 country_sim = st.selectbox("Pilih Negara:", list(countries.keys()))
                 k_max_dict = {
@@ -589,7 +589,7 @@ if uploaded_file is not None:
 
             country = st.selectbox("Pilih Sistem/Negara:", list(countries.keys()), help="Pilih negara untuk simulasi premi stasioner.")
             n_years_stat = st.slider("Jumlah tahun simulasi:", min_value=50, max_value=1000, value=100, help="Lebih banyak tahun untuk konvergensi yang lebih akurat untuk sistem dengan kelas yang rumit.")
-            tol_stat = st.number_input("Nilai Toleransi:", min_value=1e-10, max_value=1e-3, value=1e-6, step=1e-7, format="%.0e")
+            tol_stat = st.number_input("Nilai Toleransi (tol):", min_value=1e-10, max_value=1e-3, value=1e-6, step=1e-7, format="%.0e")
 
             use_baseline = st.checkbox("Gunakan Baseline (k = 0, t = 0)", value=True, help="Gunakan probabilitas baseline atau sesuaikan t dan k.")
             k_stat = 0
@@ -623,7 +623,7 @@ if uploaded_file is not None:
                 )
 
                 if not np.isnan(result_stat['pstasioner']):
-                    st.metric("Premi Stasioner Akhir", f"{result_stat['pstasioner']:,.5f}")
+                    st.metric("Premi Stasioner Akhir", f"{result_stat['pstasioner']:,.5f}m")
 
                 if st.checkbox("📈 Tampilkan Grafik Konvergensi", value=True):
                     fig_stat = px.line(x=np.arange(1, min(51, n_years_stat + 1)), y=result_stat['prem_list'][:50],
