@@ -7,13 +7,15 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from io import BytesIO
+import os
 
 # Atur konfigurasi halaman Streamlit
 st.set_page_config(layout="wide", page_title="Sistem Bonus-Malus Ideal", page_icon="📊")
 
 # Tingkatkan batas elemen untuk styling Pandas
 pd.set_option("styler.render.max_elements", 746416)
-st.sidebar.image("logougm 2.png", use_container_width=True)
+if os.path.exists("logougm 2.png"):
+    st.sidebar.image("logougm 2.png", use_container_width=True)
 
 st.markdown(
     """
@@ -848,4 +850,4 @@ if uploaded_file is not None:
         st.error(f"❌ Terjadi kesalahan: {str(e)}")
         st.info("Coba periksa file data atau parameter input.")
 else:
-    st.info("⬆️ Silakan unggah file .csv atau .xlsx di sidebar untuk memulai analisis. Aplikasi siap membantu Anda menghitung premi bonus-malus optimal!")
+    st.info("⬆️ Silakan unggah file .csv atau .xlsx di sidebar untuk memulai analisis. Aplikasi siap membantu Anda menghitung premi bonus-malus ideal!")
