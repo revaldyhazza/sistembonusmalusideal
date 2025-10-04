@@ -7,6 +7,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from io import BytesIO
+import networkx as nx
+from math import gcd
+from functools import reduce
 
 # Atur konfigurasi halaman Streamlit
 st.set_page_config(layout="wide", page_title="Sistem Bonus-Malus Ideal", page_icon="📊")
@@ -104,6 +107,26 @@ st.markdown(
         /* Progress bar styling */
         .stProgress > div > div > div {
             background-color: #4CAF50;
+        }
+
+        /* Improved input styling */
+        .stNumberInput > div > div > input {
+            background-color: #222;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 6px;
+        }
+
+        /* Slider styling */
+        .stSlider > div > div > div > div {
+            background-color: #4CAF50;
+        }
+
+        /* Radio and selectbox styling */
+        .stRadio > div, .stSelectbox > div {
+            background-color: #222;
+            border-radius: 6px;
+            padding: 8px;
         }
     </style>
     """,
@@ -319,6 +342,128 @@ countries['Kenya']['P_builder'] = P_kenya
 countries['Hong Kong']['P_builder'] = P_hongkong
 countries['Swedia']['P_builder'] = P_swedia
 
+# Fungsi pengecekan distribusi stasioner (terjemahan dari R ke Python)
+def check_stationary_distribution(transition_matrix):
+    if not isinstance(transition_matrix, np.ndarray) or transition_matrix.ndim != 2:
+        st.error("Error: Matriks transisi harus berupa matriks")
+        return None
+    
+    n = transition_matrix.shape[0]
+    if transition_matrix.shape[0] != transition_matrix.shape[1]:
+        st.error("Error: Matriks transisi harus persegi")
+        return None
+    
+    row_sums = np.sum(transition_matrix, axis=1)
+    if np.any(np.abs(row_sums - 1) > 1e-8):
+        st.error("Error: Setiap baris matriks transisi harus berjumlah 1")
+        return None
+    
+    if np.any(transition_matrix < 0):
+        st.error("Error: Probabilitas tidak boleh negatif")
+        return None
+    
+    result = {}
+    
+    # 1. Finite states
+    st.markdown("### 1. Jumlah Status Berhingga")
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.metric("Jumlah Status", n)
+    result['finite_states'] = n < np.inf
+    if result['finite_states']:
+        st.success("✅ Kriteria terpenuhi: Status berhingga.")
+    else:
+        st.error("❌ Gagal: Jumlah status tidak berhingga.")
+    
+    # 2. Irreducible (strongly connected)
+    st.markdown("### 2. Rantai Markov: Accessible dan Irreducible")
+    G = nx.from_numpy_array(transition_matrix > 0, create_using=nx.DiGraph)
+    num_scc = nx.number_strongly_connected_components(G)
+    result['accessible_irreducible'] = num_scc == 1
+    col_ir1, col_ir2 = st.columns(2)
+    with col_ir1:
+        st.metric("Komponen Kuat", num_scc)
+    if result['accessible_irreducible']:
+        st.success("✅ Kriteria terpenuhi: Rantai irreducible (1 komponen kuat terhubung). Semua status dapat diakses dari status lain.")
+    else:
+        st.error(f"❌ Gagal: Rantai tidak irreducible ({num_scc} komponen kuat).")
+        # Show components if failed
+        sccs = list(nx.strongly_connected_components(G))
+        for i, scc in enumerate(sccs):
+            st.warning(f"Komponen {i+1}: Status {sorted([x+1 for x in scc])}")
+    
+    # 3. Positive recurrent
+    st.markdown("### 3. Positive Recurrent")
+    result['positive_recurrent'] = result['accessible_irreducible']
+    if result['positive_recurrent']:
+        st.success("✅ Kriteria terpenuhi: Karena rantai irreducible dan berhingga, semua status positive recurrent.")
+    else:
+        st.error("❌ Gagal: Rantai tidak positive recurrent karena tidak irreducible.")
+    
+    # 4. Non-absorbing
+    st.markdown("### 4. Non-Absorbing States")
+    diag = np.diag(transition_matrix)
+    off_diag = transition_matrix.copy()
+    np.fill_diagonal(off_diag, 0)
+    absorbing_states = np.where((diag == 1) & (np.sum(off_diag, axis=1) == 0))[0]
+    result['non_absorbing'] = len(absorbing_states) == 0
+    col_abs1, col_abs2 = st.columns(2)
+    with col_abs1:
+        st.metric("Status Absorbing", len(absorbing_states))
+    if result['non_absorbing']:
+        st.success("✅ Kriteria terpenuhi: Tidak ada status absorbing.")
+    else:
+        st.error(f"❌ Gagal: Terdapat {len(absorbing_states)} status absorbing di indeks: {[(x+1) for x in absorbing_states.tolist()]}")
+    
+    # 5. Aperiodic
+    st.markdown("### 5. Aperiodic")
+    has_self_loops = np.any(np.diag(transition_matrix) > 0)
+    if has_self_loops:
+        result['aperiodic'] = True
+        st.success("✅ Kriteria terpenuhi: Aperiodic (terdapat self-loop pada diagonal positif).")
+        st.info("Self-loops ditemukan di: " + ", ".join([f"status {i+1}" for i in np.where(np.diag(transition_matrix) > 0)[0]]))
+    else:
+        cycles = []
+        try:
+            cycles = list(nx.simple_cycles(G))
+            cycle_lengths = [len(cycle) for cycle in cycles]
+            unique_cycles = sorted(set(cycle_lengths))
+            if len(cycles) == 0:
+                result['aperiodic'] = True
+                st.success("✅ Kriteria terpenuhi: Aperiodic (tidak ada siklus terdeteksi).")
+            else:
+                def compute_gcd(numbers):
+                    return reduce(gcd, numbers)
+                period = compute_gcd(cycle_lengths)
+                result['aperiodic'] = period == 1
+                col_per1, col_per2 = st.columns(2)
+                with col_per1:
+                    st.metric("Periode (GCD)", period)
+                with col_per2:
+                    st.metric("Panjang Siklus Unik", len(unique_cycles))
+                if result['aperiodic']:
+                    st.success("✅ Kriteria terpenuhi: Aperiodic (GCD panjang siklus = 1).")
+                else:
+                    st.error(f"❌ Gagal: Rantai periodik dengan periode {period}.")
+                st.info(f"Siklus ditemukan dengan panjang: {unique_cycles[:5]}{'...' if len(unique_cycles)>5 else ''}")
+        except Exception as e:
+            result['aperiodic'] = False
+            st.error(f"❌ Gagal: Tidak dapat menentukan periodisitas: {e}")
+    
+    # Kesimpulan
+    st.markdown("### Kesimpulan")
+    result['has_stationary_distribution'] = all(result.values())
+    passed_count = sum(result.values())
+    col_con1, col_con2 = st.columns(2)
+    with col_con1:
+        st.metric("Kriteria Terpenuhi", passed_count, delta=None)
+    if result['has_stationary_distribution']:
+        st.success("🎉 Rantai Markov memiliki distribusi stasioner karena semua kriteria terpenuhi!")
+    else:
+        st.error("⚠️ Rantai Markov TIDAK memiliki distribusi stasioner. Perbaiki matriks transisi.")
+    
+    return result
+
 # Sidebar untuk unggah file dan pengaturan global
 with st.sidebar:
     st.header("⚙️ Pengaturan")
@@ -479,8 +624,11 @@ if uploaded_file is not None:
             if simulation_mode == "Manual Input":
                 st.markdown("**Instruksi:** Masukkan jumlah klaim per tahun (maksimum sesuai slider). Premi dihitung independen per tahun berdasarkan klaim tahun tersebut.")
                 
-                num_years_opt = st.slider("Jumlah tahun pertanggungan:", min_value=1, max_value=10, value=7, help="Jumlah tahun untuk simulasi.")
-                max_k_sim_opt = st.slider("Batas maksimum klaim per tahun:", min_value=0, max_value=50, value=4, help="Batas klaim maksimal per tahun dalam simulasi.")
+                col1, col2 = st.columns(2)
+                with col1:
+                    num_years_opt = st.slider("Jumlah tahun pertanggungan:", min_value=1, max_value=10, value=7, help="Jumlah tahun untuk simulasi.")
+                with col2:
+                    max_k_sim_opt = st.slider("Batas maksimum klaim per tahun:", min_value=0, max_value=50, value=4, help="Batas klaim maksimal per tahun dalam simulasi.")
                 
                 simulation_data = []
                 
@@ -541,7 +689,7 @@ if uploaded_file is not None:
                     result_conv = simulate_bms(P_matrix_sim, ncd_vec_sim, n_classes_sim, n_years=100, tol=1e-6, country_name=country_sim, suppress_output=True)
                     num_years_opt = int(result_conv['thn_stabil']) if not np.isnan(result_conv['thn_stabil']) else 7
                     
-                    st.info(f"T maksimum berdasarkan konvergensi: {num_years_opt} tahun. K maksimum: {max_k_sim_opt}")
+                    st.info(f"t maksimum berdasarkan konvergensi: {num_years_opt} tahun. k maksimum: {max_k_sim_opt}")
                     
                     simulation_data = []
                     cumulative_k = 0
@@ -579,59 +727,153 @@ if uploaded_file is not None:
                         st.download_button(
                             label=f"📥 Download Simulasi {country_sim} (.xlsx)",
                             data=xlsx,
-                            file_name=f"simulasi_{country_sim.lower()}.xlsx",
+                            file_name=f"Simulasi_{country_sim}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
-        # Bagian 5: Premi Stasioner (Tab 5)
+        # Bagian 5: Premi Stasioner (Tab 5) - Modifikasi dengan opsi matrix
         with tab5:
             st.header("🏭 Perhitungan Premi Stasioner")
 
-            country = st.selectbox("Pilih Sistem/Negara:", list(countries.keys()), help="Pilih negara untuk simulasi premi stasioner.")
-            n_years_stat = st.slider("Jumlah tahun simulasi:", min_value=50, max_value=1000, value=100, help="Lebih banyak tahun untuk konvergensi yang lebih akurat untuk sistem dengan kelas yang rumit.")
-            tol_stat = st.number_input("Nilai Toleransi (tol):", min_value=1e-10, max_value=1e-3, value=1e-6, step=1e-7, format="%.0e")
+            matrix_mode = st.radio("Pilih Mode Matriks:", ("Sistem Negara", "Definisikan Matriks"), horizontal=True)
 
-            use_baseline = st.checkbox("Gunakan Baseline (k = 0, t = 0)", value=True, help="Gunakan probabilitas baseline atau sesuaikan t dan k.")
-            k_stat = 0
-            t_stat = 0
-            if not use_baseline:
-                k_stat = st.number_input("Nilai k:", min_value=0, max_value=10, step=1, value=0)
-                t_stat = st.number_input("Nilai t:", min_value=0, max_value=10, step=1, value=0)
+            if matrix_mode == "Sistem Negara":
+                col1, col2 = st.columns(2)
+                with col1:
+                    country = st.selectbox("Pilih Sistem/Negara:", list(countries.keys()), help="Pilih negara untuk simulasi premi stasioner.")
+                with col2:
+                    n_years_stat = st.slider("Jumlah tahun simulasi:", min_value=50, max_value=1000, value=100, help="Lebih banyak tahun untuk konvergensi yang lebih akurat untuk sistem dengan kelas yang rumit.")
+                tol_stat = st.number_input("Nilai Toleransi (tol):", min_value=1e-10, max_value=1e-3, value=1e-6, step=1e-7, format="%.0e")
 
-            if st.button("🚀 Jalankan Simulasi Stasioner", type="primary"):
-                progress_bar = st.progress(0)
-                probs = compute_baseline_probs(aa, tau, k_stat, t_stat)
-                P_matrix = countries[country]['P_builder'](*probs)
-                ncd_vec = countries[country]['ncd']
-                n_classes = countries[country]['n_classes']
+                use_baseline = st.checkbox("Gunakan Baseline (k = 0, t = 0)", value=True, help="Gunakan probabilitas baseline atau sesuaikan t dan k.")
+                k_stat = 0
+                t_stat = 0
+                if not use_baseline:
+                    col_k, col_t = st.columns(2)
+                    with col_k:
+                        k_stat = st.number_input("Nilai k:", min_value=0, max_value=10, step=1, value=0)
+                    with col_t:
+                        t_stat = st.number_input("Nilai t:", min_value=0, max_value=10, step=1, value=0)
 
-                with st.spinner("Menghitung premi stasioner..."):
-                    result_stat = simulate_bms(P_matrix, ncd_vec, n_classes, n_years=n_years_stat, tol=tol_stat, country_name=country, suppress_output=False)
-                    progress_bar.progress(1.0)
+                if st.button("🚀 Jalankan Simulasi Stasioner", type="primary"):
+                    progress_bar = st.progress(0)
+                    probs = compute_baseline_probs(aa, tau, k_stat, t_stat)
+                    P_matrix = countries[country]['P_builder'](*probs)
+                    ncd_vec = countries[country]['ncd']
+                    n_classes = countries[country]['n_classes']
 
-                st.dataframe(result_stat['df_conv'].style.format({"Premi": "{:.5f}", "Total_Variation": "{:.6g}"}), use_container_width=True, hide_index=True)
+                    with st.spinner("Menghitung premi stasioner..."):
+                        result_stat = simulate_bms(P_matrix, ncd_vec, n_classes, n_years=n_years_stat, tol=tol_stat, country_name=country, suppress_output=False)
+                        progress_bar.progress(1.0)
+
+                    st.dataframe(result_stat['df_conv'].style.format({"Premi": "{:.5f}", "Total_Variation": "{:.6g}"}), use_container_width=True, hide_index=True)
+                    
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        result_stat['df_conv'].to_excel(writer, index=False, sheet_name=f'Premi_Stasioner_{country}')
+                    xlsx = output.getvalue()
+                    st.download_button(
+                        label=f"📥 Download Premi Stasioner {country} (.xlsx)",
+                        data=xlsx,
+                        file_name=f"premi_stasioner_{country}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+                    if not np.isnan(result_stat['pstasioner']):
+                        st.metric("Premi Stasioner Akhir", f"{result_stat['pstasioner']:,.5f}")
+
+                    if st.checkbox("📈 Tampilkan Grafik Konvergensi", value=True):
+                        fig_stat = px.line(x=np.arange(1, min(51, n_years_stat + 1)), y=result_stat['prem_list'][:50],
+                                           title=f"Konvergensi Premi BMS - {country}",
+                                           labels={'x': 'Tahun', 'y': 'Premi'})
+                        fig_stat.update_layout(plot_bgcolor='#111', paper_bgcolor='#000', font_color='white', 
+                                               xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333'))
+                        st.plotly_chart(fig_stat, use_container_width=True)
+
+            else:  # Matriks Custom
+                st.subheader("🔧 Konfigurasi Matriks")
+                n_classes_custom = st.number_input("Jumlah kelas:", min_value=2, max_value=20, value=3, help="Ukuran matriks n x n.")
                 
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    result_stat['df_conv'].to_excel(writer, index=False, sheet_name=f'Premi_Stasioner_{country}')
-                xlsx = output.getvalue()
-                st.download_button(
-                    label=f"📥 Download Premi Stasioner {country} (.xlsx)",
-                    data=xlsx,
-                    file_name=f"premi_stasioner_{country.lower()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                st.markdown("**Input Matriks:** Gunakan editor di bawah untuk mengisi probabilitas transisi (baris harus sum=1).")
+                default_matrix = np.full((n_classes_custom, n_classes_custom), 1.0 / n_classes_custom)
+                df_matrix = pd.DataFrame(default_matrix, columns=[f"To {j+1}" for j in range(n_classes_custom)], index=[f"From {i+1}" for i in range(n_classes_custom)])
+                edited_df = st.data_editor(
+                    df_matrix,
+                    num_rows="fixed",
+                    column_config={col: st.column_config.NumberColumn(col, min_value=0.0, max_value=1.0, step=0.01, format="%.4f") for col in df_matrix.columns},
+                    use_container_width=True,
+                    hide_index=False
                 )
+                P_matrix_custom = edited_df.values
+                
+                # Input NCD vector
+                st.subheader("Input Vektor NCD (No-Claim Discount)")
+                available_ncd = [c for c in countries if len(countries[c]['ncd']) == n_classes_custom]
+                if len(available_ncd) > 0:
+                    selected_ncd_country = st.selectbox("Pilih vektor NCD:", ["Manual"] + available_ncd)
+                    if selected_ncd_country == "Manual":
+                        st.markdown("**Input Manual:** Masukkan nilai NCD untuk setiap kelas.")
+                        ncd_vec_custom = []
+                        for i in range(n_classes_custom):
+                            ncd_i = st.number_input(f"NCD untuk kelas {i+1}:", min_value=-1.0, max_value=1.0, value=0.0, step=0.01, key=f"ncd_custom_{i}")
+                            ncd_vec_custom.append(ncd_i)
+                    else:
+                        ncd_vec_custom = countries[selected_ncd_country]['ncd']
+                        st.info(f"Menggunakan NCD dari {selected_ncd_country}: {ncd_vec_custom}")
+                else:
+                    st.markdown("**Input Manual:** Masukkan nilai NCD untuk setiap kelas.")
+                    ncd_vec_custom = []
+                    for i in range(n_classes_custom):
+                        ncd_i = st.number_input(f"NCD untuk kelas {i+1}:", min_value=-1.0, max_value=1.0, value=0.0, step=0.01, key=f"ncd_custom_{i}")
+                        ncd_vec_custom.append(ncd_i)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    n_years_stat_custom = st.slider("Jumlah tahun simulasi:", min_value=50, max_value=1000, value=100, help="Lebih banyak tahun untuk konvergensi yang lebih akurat.")
+                with col2:
+                    tol_stat_custom = st.number_input("Nilai Toleransi (tol):", min_value=1e-10, max_value=1e-3, value=1e-6, step=1e-7, format="%.0e")
+                
+                if st.button("🔍 Cek Distribusi Stasioner", type="secondary"):
+                    check_result = check_stationary_distribution(P_matrix_custom)
+                    if check_result and check_result.get('has_stationary_distribution', False):
+                        st.session_state.custom_matrix_valid = True
+                        st.session_state.P_matrix_custom = P_matrix_custom
+                        st.session_state.ncd_vec_custom = ncd_vec_custom
+                        st.session_state.n_classes_custom = n_classes_custom
+                    else:
+                        st.session_state.custom_matrix_valid = False
+                        st.warning("Matriks tidak valid untuk distribusi stasioner. Perbaiki dan cek ulang.")
+                
+                if st.button("🚀 Jalankan Simulasi Stasioner", type="primary", disabled=not hasattr(st.session_state, 'custom_matrix_valid') or not st.session_state.custom_matrix_valid):
+                    if 'P_matrix_custom' in st.session_state and 'ncd_vec_custom' in st.session_state:
+                        progress_bar = st.progress(0)
+                        with st.spinner("Menghitung premi stasioner..."):
+                            result_stat_custom = simulate_bms(st.session_state.P_matrix_custom, st.session_state.ncd_vec_custom, st.session_state.n_classes_custom, n_years=n_years_stat_custom, tol=tol_stat_custom, country_name="Custom", suppress_output=False)
+                            progress_bar.progress(1.0)
 
-                if not np.isnan(result_stat['pstasioner']):
-                    st.metric("Premi Stasioner Akhir", f"{result_stat['pstasioner']:,.5f}m")
+                        st.dataframe(result_stat_custom['df_conv'].style.format({"Premi": "{:.5f}", "Total_Variation": "{:.6g}"}), use_container_width=True, hide_index=True)
+                        
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            result_stat_custom['df_conv'].to_excel(writer, index=False, sheet_name='Premi_Stasioner')
+                        xlsx = output.getvalue()
+                        st.download_button(
+                            label="📥 Download Premi Stasioner (.xlsx)",
+                            data=xlsx,
+                            file_name="premi_stasioner.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
 
-                if st.checkbox("📈 Tampilkan Grafik Konvergensi", value=True):
-                    fig_stat = px.line(x=np.arange(1, min(51, n_years_stat + 1)), y=result_stat['prem_list'][:50],
-                                       title=f"Konvergensi Premi BMS - {country}",
-                                       labels={'x': 'Tahun', 'y': 'Premi'})
-                    fig_stat.update_layout(plot_bgcolor='#111', paper_bgcolor='#000', font_color='white', 
-                                           xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333'))
-                    st.plotly_chart(fig_stat, use_container_width=True)
+                        if not np.isnan(result_stat_custom['pstasioner']):
+                            st.metric("Premi Stasioner Akhir", f"{result_stat_custom['pstasioner']:,.5f}")
+
+                        if st.checkbox("📈 Tampilkan Grafik Konvergensi", value=True):
+                            fig_stat_custom = px.line(x=np.arange(1, min(51, n_years_stat_custom + 1)), y=result_stat_custom['prem_list'][:50],
+                                                       title="Konvergensi Premi BMS - Custom",
+                                                       labels={'x': 'Tahun', 'y': 'Premi'})
+                            fig_stat_custom.update_layout(plot_bgcolor='#111', paper_bgcolor='#000', font_color='white', 
+                                                           xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333'))
+                            st.plotly_chart(fig_stat_custom, use_container_width=True)
 
         # Bagian 6: Analisis Sensitivitas (Tab 6) - Implementasi lengkap
         with tab6:
@@ -730,11 +972,11 @@ if uploaded_file is not None:
                 st.subheader("Sensitivitas Peluang Prediktif terhadap t dan k")
                 col_pk1, col_pk2 = st.columns(2)
                 with col_pk1:
-                    t_min_pk = st.number_input("Min t (pred):", value=1, step=1)
-                    t_max_pk = st.number_input("Max t (pred):", value=2, step=1)
+                    t_min_pk = st.number_input("Min t (tahun):", value=1, step=1)
+                    t_max_pk = st.number_input("Max t (tahun):", value=2, step=1)
                 with col_pk2:
-                    k_min_pk = st.number_input("Min k (pred):", value=0, step=1)
-                    k_max_pk = st.number_input("Max k (pred):", value=5, step=1)
+                    k_min_pk = st.number_input("Min k (banyak klaim):", value=0, step=1)
+                    k_max_pk = st.number_input("Max k (banyak klaim):", value=5, step=1)
                 if st.button("Hitung Peluang Prediktif", type="primary"):
                     with st.spinner("Menghitung..."):
                         results_tk = []
@@ -765,11 +1007,11 @@ if uploaded_file is not None:
                 st.subheader("Sensitivitas Distribusi Stasioner dan Premi setiap Negara")
                 col_dist1, col_dist2 = st.columns(2)
                 with col_dist1:
-                    t_min_dist = st.number_input("Min t (dist):", value=1, step=1)
-                    t_max_dist = st.number_input("Max t (dist):", value=5, step=1)
+                    t_min_dist = st.number_input("Min t (tahun):", value=1, step=1)
+                    t_max_dist = st.number_input("Max t (tahun):", value=5, step=1)
                 with col_dist2:
-                    k_min_dist = st.number_input("Min k (dist):", value=0, step=1)
-                    k_max_dist = st.number_input("Max k (dist):", value=5, step=1)
+                    k_min_dist = st.number_input("Min k (banyak klaim):", value=0, step=1)
+                    k_max_dist = st.number_input("Max k (banyak klaim):", value=5, step=1)
                 selected_countries_dist = st.multiselect("Pilih negara untuk distribusi:", list(countries.keys()), default=list(countries.keys()))
                 if st.button("Hitung Sensitivitas Distribusi", type="primary"):
                     with st.spinner("Menghitung untuk semua negara..."):
@@ -815,7 +1057,7 @@ if uploaded_file is not None:
                             st.download_button(
                                 label=f"📥 Download Premium {country_name} (.xlsx)",
                                 data=xlsx,
-                                file_name=f"premium_{country_name.lower()}.xlsx",
+                                file_name=f"premium_{country_name}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
 
