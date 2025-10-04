@@ -794,7 +794,8 @@ if uploaded_file is not None:
                 st.subheader("🔧 Konfigurasi Matriks")
                 n_classes_custom = st.number_input("Jumlah kelas:", min_value=2, max_value=20, value=3, help="Ukuran matriks n x n.")
                 
-                st.markdown("**Input Matriks:** Gunakan editor di bawah untuk mengisi probabilitas transisi (baris harus sum=1).")
+                st.markdown("**Input Matriks:** Gunakan editor di bawah untuk mengisi probabilitas dalam penyusunan matriks")
+                st.warning("Setiap baris harus memenuhi penjumlahan yang bernilai 1")
                 default_matrix = np.full((n_classes_custom, n_classes_custom), 1.0 / n_classes_custom)
                 df_matrix = pd.DataFrame(default_matrix, columns=[f"To {j+1}" for j in range(n_classes_custom)], index=[f"From {i+1}" for i in range(n_classes_custom)])
                 edited_df = st.data_editor(
