@@ -332,7 +332,7 @@ st.title("📊 Perancangan Sistem Bonus-Malus Ideal")
 st.markdown("**Deskripsi:** Aplikasi ini dapat membantu perusahaan dalam merancang premi ideal menggunakan pendekatan Markovian dan Bayesian. Unggah data klaim dan eksplorasi berbagai skenario untuk pengambilan keputusan yang lebih baik.")
 
 # Konten utama dengan tabs untuk navigasi yang lebih baik
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Data & Estimasi", "⚖️ Loss Function", "🏆 Tabel Premi", "🔄 Simulasi", "🏭 Premi Stasioner", "📊 Sensitivitas"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Data & Estimasi", "⚖️ Loss Function", "🏆 Premi Optimal", "🔄 Simulasi", "🏭 Premi Stasioner", "📊 Sensitivitas"])
 
 if uploaded_file is not None:
     try:
